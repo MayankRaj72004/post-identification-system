@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  postal-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-postal-system:latest
+    container_name: ai-postal-container
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data

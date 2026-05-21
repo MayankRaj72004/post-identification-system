@@ -1,0 +1,54 @@
+# Git
+.git
+.gitignore
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# CI/CD
+Jenkinsfile
+.github
+ci-cd.yml
+
+# Documentation
+README.md
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+test-results.xml
+coverage-report/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
