@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_CREDS = credentials('dockerhub-credentials')
-        IMAGE_NAME = 'postal-system'
+        IMAGE_NAME = "yourdockerhubusername/postal-system"
+        IMAGE_TAG = "latest"
     }
 
     options {
@@ -16,11 +16,21 @@ pipeline {
         stage('📥 Checkout') {
             steps {
                 echo '═══ Checking out source code ═══'
+
                 checkout scm
+
                 script {
-                    def commit = bat(script: 'git log -1 --pretty=format:%%s', returnStdout: true).trim()
-                    def author  = bat(script: 'git log -1 --pretty=format:%%ae', returnStdout: true).trim()
-                    echo "Commit: ${commit}"
+                    def commitMsg = bat(
+                        script: 'git log -1 --pretty=format:"%%s"',
+                        returnStdout: true
+                    ).trim()
+
+                    def author = bat(
+                        script: 'git log -1 --pretty=format:"%%ae"',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Commit: ${commitMsg}"
                     echo "Author: ${author}"
                 }
             }
@@ -28,16 +38,26 @@ pipeline {
 
         stage('⚙️ Setup Environment') {
             steps {
+
                 echo '═══ Setting up Python environment ═══'
+
                 bat '''
-                    py -3 --version
-                    if %ERRORLEVEL% NEQ 0 (
-                        echo ERROR: Python py launcher not found. Install Python from python.org
-                        exit /b 1
-                    )
-                    py -3 -m pip install --upgrade pip --quiet
-                    py -3 -m pip install flake8 black isort pytest pytest-cov --quiet
-                    echo === Python setup complete ===
+                python --version
+                if %ERRORLEVEL% NEQ 0 (
+                    echo ERROR: Python not found
+                    exit /b 1
+                )
+
+                python -m pip install --upgrade pip
+                if %ERRORLEVEL% NEQ 0 exit /b 1
+
+                python -m pip install -r requirements.txt
+                if %ERRORLEVEL% NEQ 0 exit /b 1
+
+                python -m pip install flake8 black isort pytest pytest-cov pandas
+                if %ERRORLEVEL% NEQ 0 exit /b 1
+
+                echo Environment Ready
                 '''
             }
         }
@@ -48,8 +68,7 @@ pipeline {
                 stage('Flake8 Lint') {
                     steps {
                         bat '''
-                            echo === Running Flake8 ===
-                            py -3 -m flake8 *.py --max-line-length=120 --ignore=E501,W503,E203 --statistics --count || echo "Flake8 complete"
+                        python -m flake8 .
                         '''
                     }
                 }
@@ -57,8 +76,7 @@ pipeline {
                 stage('Black Format Check') {
                     steps {
                         bat '''
-                            echo === Running Black ===
-                            py -3 -m black --check --diff *.py || echo "Black check complete"
+                        python -m black --check .
                         '''
                     }
                 }
@@ -66,114 +84,117 @@ pipeline {
                 stage('isort Import Check') {
                     steps {
                         bat '''
-                            echo === Running isort ===
-                            py -3 -m isort --check-only --diff *.py || echo "isort check complete"
+                        python -m isort . --check-only
                         '''
                     }
                 }
-
             }
         }
 
         stage('🧪 Unit Tests') {
             steps {
+
+                echo '═══ Running tests ═══'
+
                 bat '''
-                    echo === Running Tests ===
-                    if exist tests (
-                        py -3 -m pytest tests/ -v --tb=short || echo "Tests complete"
-                    ) else (
-                        echo No tests directory found - skipping
-                    )
+                pytest --cov=. --cov-report=term
                 '''
             }
         }
 
         stage('📊 Verify Data') {
             steps {
+
+                echo '═══ Verifying project files ═══'
+
                 bat '''
-                    echo === Verifying pincode.csv ===
-                    if exist pincode.csv (
-                        echo pincode.csv found
-                        py -3 -c "import pandas as pd; df=pd.read_csv('pincode.csv', dtype=str); print('Rows:', len(df)); print('Columns:', list(df.columns))"
-                    ) else (
-                        echo WARNING: pincode.csv not found - skipping
-                    )
+                dir
                 '''
             }
         }
 
         stage('🐳 Docker Build') {
             steps {
+
+                echo '═══ Building Docker image ═══'
+
                 bat '''
-                    echo === Building Docker Image ===
-                    docker info > nul 2>&1
-                    if %ERRORLEVEL% NEQ 0 (
-                        echo WARNING: Docker daemon not running - skipping build
-                        exit /b 0
-                    )
-                    docker build -t %IMAGE_NAME%:latest . || echo "Docker build complete"
+                docker --version
+                if %ERRORLEVEL% NEQ 0 (
+                    echo ERROR: Docker not running
+                    exit /b 1
+                )
+
+                docker build -t %IMAGE_NAME%:%IMAGE_TAG% .
                 '''
             }
         }
 
         stage('💨 Smoke Test') {
             steps {
+
+                echo '═══ Running smoke test ═══'
+
                 bat '''
-                    echo === Smoke Test ===
-                    docker info > nul 2>&1
-                    if %ERRORLEVEL% NEQ 0 (
-                        echo WARNING: Docker not available - skipping smoke test
-                        exit /b 0
-                    )
-                    docker run --rm %IMAGE_NAME%:latest py -3 --version || echo "Smoke test complete"
+                docker run -d --name postal-test -p 5000:5000 %IMAGE_NAME%:%IMAGE_TAG%
+
+                timeout /t 10
+
+                docker ps
+
+                docker stop postal-test
+                docker rm postal-test
                 '''
             }
         }
 
         stage('📤 Push Image') {
-            when {
-                branch 'main'
-            }
             steps {
-                bat '''
-                    echo === Pushing to DockerHub ===
-                    docker info > nul 2>&1
-                    if %ERRORLEVEL% NEQ 0 (
-                        echo WARNING: Docker not available - skipping push
-                        exit /b 0
-                    )
-                    echo %DOCKERHUB_CREDS_PSW% | docker login -u %DOCKERHUB_CREDS_USR% --password-stdin || echo "Login skipped"
-                    docker push %IMAGE_NAME%:latest || echo "Push complete"
-                '''
+
+                echo '═══ Pushing image to DockerHub ═══'
+
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+
+                    bat '''
+                    docker login -u %DOCKER_USER% -p %DOCKER_PASS%
+
+                    docker push %IMAGE_NAME%:%IMAGE_TAG%
+                    '''
+                }
             }
         }
 
         stage('🚀 Deploy') {
-            when {
-                branch 'main'
-            }
             steps {
-                echo '═══ Deployment step - configure as needed ═══'
-                bat 'echo Deploy stage reached successfully'
+                echo '═══ Deployment stage completed ═══'
             }
         }
-
     }
 
     post {
+
         always {
-            bat 'docker image prune -f > nul 2>&1 & exit /b 0'
-            echo ''
+
+            bat '''
+            docker image prune -f >nul 2>&1
+            exit /b 0
+            '''
+
             echo 'BUILD COMPLETE'
             echo "Job: ${env.JOB_NAME}"
             echo "Build: #${env.BUILD_NUMBER}"
         }
+
         success {
-            echo 'BUILD SUCCESS'
+            echo 'BUILD SUCCESSFUL'
         }
+
         failure {
             echo 'BUILD FAILED - Check console output above'
         }
     }
-
 }
