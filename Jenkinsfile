@@ -14,6 +14,9 @@ pipeline {
         HOST_PORT       = "8501"
 
         DOCKERHUB_CREDS = credentials('dockerhub-credentials')
+        
+        // Find Python executable - add to PATH
+        PATH = "C:\\Python312;C:\\Python311;C:\\Python310;${PATH}"
     }
 
     triggers {
@@ -59,14 +62,36 @@ pipeline {
                 echo "═══ Setting up Python environment ═══"
 
                 bat '''
-                    python --version
-
-                    pip install --upgrade pip
-
-                    pip install -r requirements.txt
-
-                    pip install flake8 black isort pytest pytest-cov pandas
-
+                    REM Find Python installation
+                    for /f "delims=" %%i in ('where python') do set PYTHON_PATH=%%i
+                    if defined PYTHON_PATH (
+                        echo Found Python at: !PYTHON_PATH!
+                    ) else (
+                        echo Searching for Python in common locations...
+                        if exist "C:\\Python312\\python.exe" (
+                            set PYTHON_PATH=C:\\Python312\\python.exe
+                        ) else if exist "C:\\Python311\\python.exe" (
+                            set PYTHON_PATH=C:\\Python311\\python.exe
+                        ) else if exist "C:\\Python310\\python.exe" (
+                            set PYTHON_PATH=C:\\Python310\\python.exe
+                        ) else if exist "C:\\Program Files\\Python312\\python.exe" (
+                            set PYTHON_PATH=C:\\Program Files\\Python312\\python.exe
+                        ) else if exist "C:\\Program Files\\Python311\\python.exe" (
+                            set PYTHON_PATH=C:\\Program Files\\Python311\\python.exe
+                        ) else (
+                            echo ERROR: Python not found! Please install Python and add to PATH.
+                            exit /b 1
+                        )
+                    )
+                    
+                    echo Using Python: !PYTHON_PATH!
+                    !PYTHON_PATH! --version
+                    
+                    REM Install pip and dependencies
+                    !PYTHON_PATH! -m pip install --upgrade pip
+                    !PYTHON_PATH! -m pip install -r requirements.txt
+                    !PYTHON_PATH! -m pip install flake8 black isort pytest pytest-cov pandas
+                    
                     echo Environment Ready
                 '''
             }
@@ -80,7 +105,10 @@ pipeline {
                     steps {
 
                         bat '''
-                            flake8 *.py ^
+                            for /f "delims=" %%i in ('where python') do set PYTHON_PATH=%%i
+                            if not defined PYTHON_PATH set PYTHON_PATH=C:\\Python312\\python.exe
+                            
+                            !PYTHON_PATH! -m flake8 *.py ^
                             --max-line-length=120 ^
                             --ignore=E501,W503,E203 ^
                             --statistics ^
@@ -93,7 +121,10 @@ pipeline {
                     steps {
 
                         bat '''
-                            black --check --diff *.py
+                            for /f "delims=" %%i in ('where python') do set PYTHON_PATH=%%i
+                            if not defined PYTHON_PATH set PYTHON_PATH=C:\\Python312\\python.exe
+                            
+                            !PYTHON_PATH! -m black --check --diff *.py
                         '''
                     }
                 }
@@ -102,7 +133,10 @@ pipeline {
                     steps {
 
                         bat '''
-                            isort --check-only --diff *.py
+                            for /f "delims=" %%i in ('where python') do set PYTHON_PATH=%%i
+                            if not defined PYTHON_PATH set PYTHON_PATH=C:\\Python312\\python.exe
+                            
+                            !PYTHON_PATH! -m isort --check-only --diff *.py
                         '''
                     }
                 }
@@ -154,7 +188,10 @@ pipeline {
                 echo "═══ Verifying pincode.csv ═══"
 
                 bat '''
-python -c "import pandas as pd; df=pd.read_csv('pincode.csv'); print(df.head())"
+                    for /f "delims=" %%i in ('where python') do set PYTHON_PATH=%%i
+                    if not defined PYTHON_PATH set PYTHON_PATH=C:\\Python312\\python.exe
+                    
+                    !PYTHON_PATH! -c "import pandas as pd; df=pd.read_csv('pincode.csv'); print(df.head())"
                 '''
             }
         }
@@ -280,7 +317,8 @@ Build: #${BUILD_NUMBER}
         always {
 
             bat '''
-                docker image prune -f
+                REM Cleanup Docker images (non-critical)
+                docker image prune -f || echo "Docker cleanup skipped"
             '''
 
             cleanWs()
